@@ -17,6 +17,7 @@ const video = document.querySelector('#video');
 const debugPanel = document.querySelector('#debug-panel');
 const playOverlay = document.querySelector('#play-overlay');
 const playButton = document.querySelector('#play-button');
+const playResult = document.querySelector('#play-result');
 let socket;
 let peer;
 let pendingCandidates = [];
@@ -24,6 +25,7 @@ let remoteIceComplete = false;
 let peerSequence = 0;
 let statsTimer;
 let authorized = false;
+let playAttemptInProgress = false;
 const debugState = { websocket: 'connecting', session: 'waiting', peer: 'not created', ice: 'new', signaling: 'stable', track: 'not received', video: 'not attached', rtp: 'not sampled', codec: 'unknown' };
 
 function renderDebug() {
@@ -35,7 +37,7 @@ function renderDebug() {
 function emit(level, message, details) {
   const line = `[TV] ${message}`;
   console[level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info'](line, details ?? '');
-  if (debugEnabled && socket?.readyState === WebSocket.OPEN) send({ type: 'debug-log', level, message, details });
+  if ((debugEnabled || level !== 'info') && socket?.readyState === WebSocket.OPEN) send({ type: 'debug-log', level, message, details });
 }
 
 function setStatus(message) { status.textContent = message; }
@@ -67,16 +69,30 @@ function resetPeer() {
 }
 
 async function attemptPlay(origin) {
+  if (playAttemptInProgress) return;
+  playAttemptInProgress = true;
+  if (origin === 'manual button') {
+    playButton.disabled = true;
+    playResult.textContent = 'Tentando iniciar vídeo…';
+    emit('info', 'manual playback requested');
+  }
   try {
+    video.muted = true;
     await video.play();
     playOverlay.hidden = true;
+    playResult.textContent = '';
     emit('info', `video.play resolved (${origin})`, videoElementDetails(video));
     debugState.video = { playing: true, ...videoElementDetails(video) };
   } catch (error) {
     playOverlay.hidden = false;
-    setStatus('Transmissão recebida. Escolha “Iniciar vídeo”.');
+    playResult.textContent = `Não foi possível iniciar: ${error.name}.`;
+    setStatus('Transmissão recebida, mas o navegador não iniciou o vídeo.');
     emit('error', `video.play rejected (${origin})`, errorDetails(error));
     debugState.video = { playing: false, error: error.name, ...videoElementDetails(video) };
+    setTimeout(() => playButton.focus?.(), 0);
+  } finally {
+    playButton.disabled = false;
+    playAttemptInProgress = false;
   }
   renderDebug();
 }
@@ -243,7 +259,15 @@ function connect() {
   });
 }
 
-playButton.addEventListener('click', () => attemptPlay('manual button'));
+function requestManualPlayback(event) {
+  event?.preventDefault();
+  attemptPlay('manual button');
+}
+playButton.addEventListener('click', requestManualPlayback);
+playButton.addEventListener('touchend', requestManualPlayback);
+playButton.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' || event.key === ' ') requestManualPlayback(event);
+});
 observeVideoEvents();
 window.addEventListener('error', (event) => emit('error', 'window error', { message: event.message, source: event.filename, line: event.lineno }));
 window.addEventListener('unhandledrejection', (event) => emit('error', 'unhandled rejection', errorDetails(event.reason)));

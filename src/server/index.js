@@ -121,7 +121,8 @@ function attachSignaling(server, kind, lan, store) {
     for (const socket of [session.senderSocket, session.tvSocket]) {
       if (socket && socket !== except) {
         send(socket, { type: 'session-ended', reason });
-        close(socket);
+      console.warn(`${socket.role} WebSocket closed: unsupported message ${message.type}`);
+      close(socket);
       }
     }
   };
@@ -141,14 +142,22 @@ function attachSignaling(server, kind, lan, store) {
     socket.role = undefined;
     socket.sessionId = undefined;
     socket.attempts = 0;
+    console.info(`${kind} WebSocket connected`);
+    socket.on('error', (error) => console.warn(`${socket.role ?? kind} WebSocket error: ${error.message}`));
 
     socket.on('message', (raw) => {
       const message = parseMessage(raw);
-      if (!message) return close(socket);
+      if (!message) {
+        console.warn(`${socket.role ?? kind} WebSocket closed: invalid message`);
+        return close(socket);
+      }
 
       if (!socket.role) {
         const expectedHello = kind === 'loopback' ? 'sender-hello' : 'tv-hello';
-        if (message.type !== expectedHello) return close(socket);
+        if (message.type !== expectedHello) {
+          console.warn(`${kind} WebSocket closed: expected ${expectedHello}, received ${message.type}`);
+          return close(socket);
+        }
         socket.role = kind === 'loopback' ? 'sender' : 'tv';
         if (socket.role === 'tv') {
           const session = store.create();
@@ -189,7 +198,10 @@ function attachSignaling(server, kind, lan, store) {
       }
 
       const session = socket.sessionId && store.get(socket.sessionId);
-      if (!session || !session.authorized) return close(socket);
+      if (!session || !session.authorized) {
+        console.warn(`${socket.role} WebSocket closed: no authorized session for message ${message.type}`);
+        return close(socket);
+      }
 
       if (socket.role === 'sender' && message.type === 'stop') {
         endSession(session, 'stopped');
@@ -220,7 +232,8 @@ function attachSignaling(server, kind, lan, store) {
       close(socket);
     });
 
-    socket.on('close', () => {
+    socket.on('close', (code, reason) => {
+      console.info(`${socket.role ?? kind} WebSocket closed (code ${code}${reason.length ? `, ${reason.toString()}` : ''})`);
       const session = socket.sessionId && store.get(socket.sessionId);
       if (!session) return;
       if (socket.role === 'tv') endSession(session, 'receiver_disconnected', socket);

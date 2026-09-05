@@ -22,3 +22,4 @@ body.has-video #video { display: block; }
 .debug-panel { position: fixed; top: .75rem; left: .75rem; z-index: 3; max-width: min(94vw, 680px); max-height: 45vh; overflow: auto; margin: 0; padding: .75rem; border: 1px solid #557188; border-radius: 8px; background: #071019e8; color: #dcecff; font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; text-align: left; }
 .play-overlay { position: fixed; inset: 0; z-index: 4; display: grid; place-content: center; gap: .5rem; padding: 2rem; text-align: center; background: #000b; }
 .play-overlay button { min-width: 220px; }
+.play-result { min-height: 1.4rem; margin: .3rem 0 0; color: #ffd38b; }
