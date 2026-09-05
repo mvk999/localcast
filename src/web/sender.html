@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>LocalCast</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="card sender-card">
+      <h1>LocalCast</h1>
+      <p class="eyebrow">Servidor local · <span id="origin"></span></p>
+      <section id="pairing">
+        <label for="code">Código exibido na TV</label>
+        <input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000 000" aria-describedby="status">
+        <button id="connect" disabled>Conectar</button>
+      </section>
+      <section id="sharing" hidden>
+        <p class="success">TV conectada ✓</p>
+        <button id="share">Compartilhar tela</button>
+        <button id="stop" class="secondary" hidden>Parar transmissão</button>
+      </section>
+      <p id="status" class="status" role="status">Conectando ao servidor local…</p>
+      <p class="note">A tela só será solicitada depois de clicar em “Compartilhar tela”.</p>
+    </main>
+    <script type="module" src="/sender.js"></script>
+  </body>
+</html>

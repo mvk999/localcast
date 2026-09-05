@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SessionStore } from '../src/server/session-store.js';
 
-test('a PIN authorizes exactly one live session', () => {
+test('a PIN authorizes exactly one live session and the active cast outlives the PIN', () => {
   let clock = 10;
-  const store = new SessionStore({ now: () => clock, ttlMs: 100 });
+  const store = new SessionStore({ now: () => clock, ttlMs: 100, activeTtlMs: 1_000 });
   const session = store.create();
   const result = store.authorize(session.code);
 
@@ -13,7 +13,7 @@ test('a PIN authorizes exactly one live session', () => {
   assert.equal(store.authorize(session.code).ok, false);
   assert.equal(session.code, undefined);
   clock = 111;
-  assert.equal(store.get(session.id), undefined);
+  assert.equal(store.get(session.id), session);
 });
 
 test('rejects unknown and expired PINs', () => {

@@ -1,13 +1,15 @@
 import crypto from 'node:crypto';
 
 export const SESSION_TTL_MS = 2 * 60 * 1000;
+export const ACTIVE_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 
 export class SessionStore {
   #sessions = new Map();
 
-  constructor({ now = () => Date.now(), ttlMs = SESSION_TTL_MS } = {}) {
+  constructor({ now = () => Date.now(), ttlMs = SESSION_TTL_MS, activeTtlMs = ACTIVE_SESSION_TTL_MS } = {}) {
     this.now = now;
     this.ttlMs = ttlMs;
+    this.activeTtlMs = activeTtlMs;
   }
 
   create() {
@@ -39,6 +41,7 @@ export class SessionStore {
     session.authorized = true;
     session.code = undefined; // A successful PIN can never be used again.
     session.state = 'authorized';
+    session.expiresAt = this.now() + this.activeTtlMs;
     return { ok: true, session };
   }
 

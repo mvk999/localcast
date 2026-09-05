@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>LocalCast TV</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body class="receiver-body">
+    <main id="receiver-card" class="card receiver-card">
+      <h1>LOCALCAST</h1>
+      <p class="eyebrow">Código de conexão</p>
+      <output id="code" class="tv-code">··· ···</output>
+      <p id="status" class="status">Preparando conexão…</p>
+      <p id="diagnostic" class="note"></p>
+    </main>
+    <video id="video" autoplay muted playsinline></video>
+    <script type="module" src="/receiver.js"></script>
+  </body>
+</html>
