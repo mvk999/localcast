@@ -43,13 +43,13 @@ Exemplo de saída:
 LocalCast iniciado.
 
 No notebook: http://localhost:8000
-Na TV:       http://192.168.1.20:8000/tv
+Na TV:       http://<IP-PRIVADO-DO-NOTEBOOK>:8000/tv
 ```
 
 Abra a primeira URL somente no notebook. Abra a URL da TV no navegador da TV. Se houver mais de uma interface privada elegível, LocalCast não escolhe silenciosamente: informe uma explicitamente.
 
 ```bash
-npm start -- --host 192.168.1.20
+npm start -- --host <IP-PRIVADO-DO-NOTEBOOK>
 ```
 
 O host informado deve ser um IPv4 privado ativo do notebook. Por padrão são ignorados `docker`, bridges, `veth`, VPN/TUN/TAP, Tailscale, WireGuard, VirtualBox e interfaces semelhantes. A seleção normal usa a interface da rota padrão do kernel, mas a consulta da rota não faz contato com a Internet.
