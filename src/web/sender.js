@@ -149,7 +149,7 @@ function createPeer() {
   instance.onsignalingstatechange = () => emit('info', `PC #${id} signalingState`, { state: instance.signalingState });
   instance.onconnectionstatechange = () => {
     emit(instance.connectionState === 'failed' ? 'error' : 'info', `PC #${id} connectionState`, { state: instance.connectionState });
-    if (instance.connectionState === 'connected') setStatus('Transmitindo.');
+    if (instance.connectionState === 'connected') setStatus(stream?.getAudioTracks().length ? 'Transmitindo vídeo e áudio.' : 'Transmitindo vídeo.');
     if (['failed', 'disconnected'].includes(instance.connectionState)) setStatus('A conexão WebRTC foi interrompida.');
   };
   instance.oniceconnectionstatechange = () => emit(instance.iceConnectionState === 'failed' ? 'error' : 'info', `PC #${id} iceConnectionState`, { state: instance.iceConnectionState });
@@ -222,9 +222,16 @@ shareButton.addEventListener('click', async () => {
   const profile = selectedVideoProfile();
   emit('info', 'Capture requested', { profile: profile.label, target: `${profile.maxWidth}x${profile.maxHeight}@30` });
   try {
-    stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 30, max: 30 } }, audio: false });
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: 30, max: 30 } },
+      audio: true,
+      systemAudio: 'include',
+      windowAudio: 'system'
+    });
     const videoTracks = stream.getVideoTracks();
-    emit('info', 'Capture granted', { streamId: stream.id, tracks: stream.getTracks().map(trackDetails) });
+    const audioTracks = stream.getAudioTracks();
+    emit('info', 'Capture granted', { streamId: stream.id, videoTracks: videoTracks.length, audioTracks: audioTracks.length, tracks: stream.getTracks().map(trackDetails) });
+    if (audioTracks.length === 0) emit('warn', 'No audio track was provided for the selected surface');
     if (videoTracks.length === 0) throw new Error('getDisplayMedia returned no video track.');
     for (const track of videoTracks) await configureCaptureForVideo(track, profile);
 

@@ -18,6 +18,7 @@ const debugPanel = document.querySelector('#debug-panel');
 const playOverlay = document.querySelector('#play-overlay');
 const playButton = document.querySelector('#play-button');
 const playResult = document.querySelector('#play-result');
+const audioButton = document.querySelector('#audio-button');
 let socket;
 let peer;
 let pendingCandidates = [];
@@ -26,6 +27,7 @@ let peerSequence = 0;
 let statsTimer;
 let authorized = false;
 let playAttemptInProgress = false;
+let remoteStream;
 const debugState = { websocket: 'connecting', session: 'waiting', peer: 'not created', ice: 'new', signaling: 'stable', track: 'not received', video: 'not attached', rtp: 'not sampled', codec: 'unknown' };
 
 function renderDebug() {
@@ -72,6 +74,9 @@ function resetPeer() {
   peer = undefined;
   video.pause();
   video.srcObject = null;
+  video.muted = true;
+  remoteStream = undefined;
+  audioButton.hidden = true;
   playOverlay.hidden = true;
   document.body.classList.remove('has-video');
   debugState.peer = 'not created';
@@ -108,6 +113,27 @@ async function attemptPlay(origin) {
     playAttemptInProgress = false;
   }
   renderDebug();
+}
+
+function enableAudio(event) {
+  event?.preventDefault();
+  if (!remoteStream?.getAudioTracks().length) return;
+  try {
+    video.muted = false;
+    video.volume = 1;
+    const playback = video.play();
+    audioButton.hidden = true;
+    emit('info', 'audio enabled by TV interaction');
+    playback?.catch((error) => {
+      video.muted = true;
+      audioButton.hidden = false;
+      emit('error', 'audio enable failed', errorDetails(error));
+    });
+  } catch (error) {
+    video.muted = true;
+    audioButton.hidden = false;
+    emit('error', 'audio enable failed', errorDetails(error));
+  }
 }
 
 function dismissPlaybackOverlayWhenVideoIsRenderable(eventName, details) {
@@ -189,11 +215,21 @@ function createPeer() {
     debugState.track = { received: true, ...trackDetails(track), streams: event.streams.length };
     bindTrackEvents(track);
     requestLowJitterBuffer(event.receiver);
-    const inboundStream = event.streams.length > 0 ? event.streams[0] : new MediaStream();
-    if (event.streams.length === 0) inboundStream.addTrack(track);
-    video.srcObject = inboundStream;
+    if (event.streams.length > 0) remoteStream = event.streams[0];
+    else {
+      remoteStream ??= new MediaStream();
+      if (!remoteStream.getTracks().some((existing) => existing.id === track.id)) remoteStream.addTrack(track);
+    }
+    if (track.kind === 'audio') {
+      audioButton.hidden = false;
+      if (video.srcObject !== remoteStream) video.srcObject = remoteStream;
+      emit('info', 'REMOTE AUDIO TRACK READY', trackDetails(track));
+      renderDebug();
+      return;
+    }
+    video.srcObject = remoteStream;
     document.body.classList.add('has-video');
-    emit('info', 'video.srcObject assigned', { streamId: inboundStream.id, ...videoElementDetails(video) });
+    emit('info', 'video.srcObject assigned', { streamId: remoteStream.id, ...videoElementDetails(video) });
     await attemptPlay('ontrack');
     renderDebug();
   };
@@ -292,6 +328,11 @@ playButton.addEventListener('click', requestManualPlayback);
 playButton.addEventListener('touchend', requestManualPlayback);
 playButton.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' || event.key === ' ') requestManualPlayback(event);
+});
+audioButton.addEventListener('click', enableAudio);
+audioButton.addEventListener('touchend', enableAudio);
+audioButton.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' || event.key === ' ') enableAudio(event);
 });
 observeVideoEvents();
 window.addEventListener('error', (event) => emit('error', 'window error', { message: event.message, source: event.filename, line: event.lineno }));

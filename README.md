@@ -83,7 +83,7 @@ O navegador pode usar resolução mDNS local para candidatos ICE mascarados por 
 ## Limitações e compatibilidade
 
 - O maior risco técnico é o navegador da TV. Algumas TVs antigas não têm WebRTC, WebSocket, decodificador de vídeo compatível ou política de autoplay adequada. A página `/tv` informa ausência básica de WebSocket/WebRTC; o teste definitivo é fazer um cast real na TV.
-- O MVP envia vídeo e não captura áudio. Áudio de compartilhamento varia muito entre navegadores e será avaliado somente após validar o vídeo.
+- LocalCast solicita áudio junto da captura. A disponibilidade depende do navegador, sistema operacional e superfície selecionada; quando o stream não possui track de áudio, a transmissão continua somente com vídeo.
 - Não há suporte a IPv6 no MVP. Isso é intencional para evitar anunciar endereço global sem uma análise própria.
 - Sem STUN/TURN, notebook e TV precisam poder trocar UDP/TCP diretamente. Isolamento de clientes, VLANs separadas ou firewall local podem impedir a conexão.
 - Em desktops Chrome/Chromium, `getDisplayMedia()` requer gesto explícito e contexto seguro. Firefox pode funcionar, mas deve ser testado separadamente.
@@ -126,7 +126,7 @@ Para um teste inicial sem TV, abra `http://IP-DA-LAN:8000/tv` em um segundo nave
 
 1. Validar o receiver em uma TV real e registrar modelo/navegador testado.
 2. Ajustar compatibilidade de codec e latência somente se a TV exigir.
-3. Avaliar áudio opcional após o vídeo estar estável.
+3. Validar áudio de aba, janela e sistema nos navegadores usados.
 4. Considerar HTTPS local somente se o navegador da TV permitir uma experiência de certificado aceitável.
 
 ## Diagnóstico de tela preta
@@ -167,4 +167,4 @@ Ambos marcam a captura como conteúdo de movimento e preferem preservar a taxa d
 
 Para filmes e YouTube, comece por **Baixa latência**. Ela reduz a carga de captura, encode e decode, que costuma ser mais relevante que a rede numa LAN doméstica. Se a imagem ficar estável e o atraso for aceitável, compare com **Maior qualidade**. O painel `?debug=1` mostra `jitterBufferAvgMs`, FPS, tamanho e codec para a comparação.
 
-O MVP ainda transmite apenas vídeo (`audio: false`); a adição de áudio é uma decisão separada, pois o suporte de áudio de captura varia entre navegadores.
+LocalCast solicita `audio: true` e adiciona qualquer track de áudio retornado ao mesmo peer connection. No seletor do navegador, marque **Compartilhar áudio** quando disponível. Alguns navegadores e sistemas não oferecem áudio para telas ou janelas; nesse caso o stream terá apenas vídeo. A TV pede uma interação única em **Ativar áudio** para respeitar políticas de autoplay.
