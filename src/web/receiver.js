@@ -97,12 +97,23 @@ async function attemptPlay(origin) {
   renderDebug();
 }
 
+function dismissPlaybackOverlayWhenVideoIsRenderable(eventName, details) {
+  const renderable = ['loadeddata', 'canplay', 'playing'].includes(eventName) && details.videoWidth > 0 && details.videoHeight > 0;
+  if (!renderable || playOverlay.hidden) return;
+  playOverlay.hidden = true;
+  playResult.textContent = '';
+  playButton.disabled = false;
+  playAttemptInProgress = false;
+  emit('info', `playback overlay dismissed by ${eventName}`, details);
+}
+
 function observeVideoEvents() {
   for (const eventName of ['loadedmetadata', 'loadeddata', 'canplay', 'playing', 'pause', 'waiting', 'stalled', 'suspend', 'emptied', 'error']) {
     video.addEventListener(eventName, () => {
       const details = videoElementDetails(video);
       emit(eventName === 'error' ? 'error' : 'info', `video event: ${eventName}`, details);
       debugState.video = details;
+      dismissPlaybackOverlayWhenVideoIsRenderable(eventName, details);
       renderDebug();
     });
   }
