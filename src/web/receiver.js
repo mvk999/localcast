@@ -19,6 +19,7 @@ const playOverlay = document.querySelector('#play-overlay');
 const playButton = document.querySelector('#play-button');
 const playResult = document.querySelector('#play-result');
 const audioButton = document.querySelector('#audio-button');
+const fullscreenButton = document.querySelector('#fullscreen-button');
 let socket;
 let peer;
 let pendingCandidates = [];
@@ -28,6 +29,7 @@ let statsTimer;
 let authorized = false;
 let playAttemptInProgress = false;
 let remoteStream;
+let fullscreenRequestInProgress = false;
 const SYNCHRONIZED_JITTER_BUFFER_MS = 30;
 const debugState = { websocket: 'connecting', session: 'waiting', peer: 'not created', ice: 'new', signaling: 'stable', track: 'not received', video: 'not attached', rtp: 'not sampled', codec: 'unknown' };
 
@@ -69,6 +71,47 @@ function requestSynchronizedJitterBuffer(receiver) {
   }
 }
 
+function fullscreenRequestSupported() {
+  return typeof video.requestFullscreen === 'function'
+    || typeof video.webkitRequestFullscreen === 'function'
+    || typeof video.mozRequestFullScreen === 'function'
+    || typeof video.msRequestFullscreen === 'function'
+    || typeof video.webkitEnterFullscreen === 'function';
+}
+
+function fullscreenActive() {
+  return document.fullscreenElement || document.webkitFullscreenElement
+    || document.mozFullScreenElement || document.msFullscreenElement || video.webkitDisplayingFullscreen;
+}
+
+function updateFullscreenButton() {
+  fullscreenButton.hidden = !document.body.classList.contains('has-video') || Boolean(fullscreenActive());
+}
+
+async function requestVideoFullscreen() {
+  if (fullscreenRequestInProgress || fullscreenActive()) return;
+  const request = video.requestFullscreen || video.webkitRequestFullscreen
+    || video.mozRequestFullScreen || video.msRequestFullscreen;
+  if (!request && typeof video.webkitEnterFullscreen !== 'function') {
+    setStatus('Este navegador da TV não oferece tela cheia para vídeo.');
+    emit('warn', 'Fullscreen API is not supported by this TV browser');
+    return;
+  }
+  fullscreenRequestInProgress = true;
+  try {
+    const result = request ? request.call(video) : video.webkitEnterFullscreen();
+    await Promise.resolve(result);
+    fullscreenButton.hidden = true;
+    emit('info', 'video fullscreen requested');
+  } catch (error) {
+    fullscreenButton.hidden = false;
+    setStatus('O navegador recusou entrar em tela cheia.');
+    emit('error', 'video fullscreen request failed', errorDetails(error));
+  } finally {
+    fullscreenRequestInProgress = false;
+  }
+}
+
 function resetPeer() {
   stopStats();
   pendingCandidates = [];
@@ -80,6 +123,7 @@ function resetPeer() {
   video.muted = true;
   remoteStream = undefined;
   audioButton.hidden = true;
+  fullscreenButton.hidden = true;
   playOverlay.hidden = true;
   document.body.classList.remove('has-video');
   debugState.peer = 'not created';
@@ -232,6 +276,7 @@ function createPeer() {
     }
     video.srcObject = remoteStream;
     document.body.classList.add('has-video');
+    if (fullscreenRequestSupported()) fullscreenButton.hidden = false;
     emit('info', 'video.srcObject assigned', { streamId: remoteStream.id, ...videoElementDetails(video) });
     await attemptPlay('ontrack');
     renderDebug();
@@ -332,6 +377,19 @@ playButton.addEventListener('touchend', requestManualPlayback);
 playButton.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' || event.key === ' ') requestManualPlayback(event);
 });
+function requestManualFullscreen(event) {
+  event?.preventDefault();
+  requestVideoFullscreen();
+}
+fullscreenButton.addEventListener('click', requestManualFullscreen);
+fullscreenButton.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' || event.key === ' ') requestManualFullscreen(event);
+});
+for (const eventName of ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange']) {
+  document.addEventListener(eventName, updateFullscreenButton);
+}
+video.addEventListener('webkitbeginfullscreen', updateFullscreenButton);
+video.addEventListener('webkitendfullscreen', updateFullscreenButton);
 audioButton.addEventListener('click', enableAudio);
 audioButton.addEventListener('touchend', enableAudio);
 audioButton.addEventListener('keydown', (event) => {

@@ -27,3 +27,4 @@ body.has-video #video { display: block; }
 .play-overlay[hidden] { display: none !important; }
 select { width: 100%; min-height: 48px; border: 1px solid #52697d; border-radius: 10px; background: #0d141b; color: inherit; padding: 0 .8rem; font: inherit; }
 .audio-button { position: fixed; right: 1rem; bottom: 1rem; z-index: 3; width: auto; min-width: 180px; box-shadow: 0 4px 18px #0008; }
+.fullscreen-button { position: fixed; left: 1rem; bottom: 1rem; z-index: 3; width: auto; min-width: 180px; box-shadow: 0 4px 18px #0008; }

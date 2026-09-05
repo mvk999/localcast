@@ -62,7 +62,8 @@ O host informado deve ser um IPv4 privado ativo do notebook. Por padrão são ig
 4. A TV passa a autorizada. Somente então o botão **Compartilhar tela** fica disponível.
 5. Ao clicar no botão, o navegador pede a escolha nativa de tela, janela ou aba. Antes desse gesto não existe captura ativa.
 6. O sender cria a oferta WebRTC e a TV recebe o vídeo ocupando a tela.
-7. **Parar transmissão**, encerrar a página sender ou desconectar a TV para os tracks, fecha o peer connection, encerra WebSockets e invalida a sessão. A TV cria um PIN novo.
+7. Quando o vídeo aparecer, selecione **Tela cheia** na TV para solicitar o modo fullscreen e esconder a barra do navegador. A ação depende do suporte do navegador da TV.
+8. **Parar transmissão**, encerrar a página sender ou desconectar a TV para os tracks, fecha o peer connection, encerra WebSockets e invalida a sessão. A TV cria um PIN novo.
 
 O sender limita cinco PINs incorretos por conexão local; após isso a página deve ser recarregada. Esse limite protege a tentativa de pareamento, mas a página sender é deliberadamente acessível apenas por loopback, não pela LAN.
 
@@ -121,6 +122,7 @@ Para um teste inicial sem TV, abra `http://IP-DA-LAN:8000/tv` em um segundo nave
 - **TV fica em Conectando vídeo:** confirme que não há isolamento Wi-Fi de clientes e que o navegador da TV implementa WebRTC. Teste primeiro outro browser/dispositivo na mesma LAN.
 - **Compartilhamento não abre:** use `http://localhost:8000` exatamente no notebook, em Chrome/Chromium atualizado, e verifique permissões do navegador/sistema.
 - **Vídeo não inicia na TV:** use o controle para permitir reprodução se solicitado; alguns navegadores de TV aplicam política de autoplay própria.
+- **A barra de endereço continua aparecendo:** com o vídeo visível, selecione **Tela cheia**. Se a TV informar que não suporta ou recusar, o navegador embarcado não permite que uma página esconda sua interface; essa limitação não pode ser contornada pelo LocalCast.
 
 ## Roadmap curto
 
