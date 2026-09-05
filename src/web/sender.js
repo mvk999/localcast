@@ -42,12 +42,12 @@ function send(message) { if (socket?.readyState === WebSocket.OPEN) socket.send(
 function normalizeCode(value) { return value.replace(/\D/g, '').slice(0, 6); }
 
 const VIDEO_PROFILES = {
-  'low-latency': { label: 'Baixa latência', maxWidth: 1280, maxHeight: 720, maxBitrate: 6_000_000 },
-  'high-quality': { label: 'Maior qualidade', maxWidth: 1920, maxHeight: 1080, maxBitrate: 12_000_000 }
+  balanced: { label: 'Boa qualidade + baixa latência', maxWidth: 1920, maxHeight: 1080, maxBitrate: 10_000_000 },
+  'low-latency': { label: 'Máxima fluidez', maxWidth: 1280, maxHeight: 720, maxBitrate: 6_000_000 }
 };
 
 function selectedVideoProfile() {
-  return VIDEO_PROFILES[latencyProfile.value] ?? VIDEO_PROFILES['low-latency'];
+  return VIDEO_PROFILES[latencyProfile.value] ?? VIDEO_PROFILES.balanced;
 }
 
 async function configureCaptureForVideo(track, profile) {
@@ -234,6 +234,9 @@ shareButton.addEventListener('click', async () => {
     if (audioTracks.length === 0) emit('warn', 'No audio track was provided for the selected surface');
     if (videoTracks.length === 0) throw new Error('getDisplayMedia returned no video track.');
     for (const track of videoTracks) await configureCaptureForVideo(track, profile);
+    for (const track of audioTracks) {
+      if ('contentHint' in track) track.contentHint = 'music';
+    }
 
     preview.srcObject = stream;
     preview.hidden = false;

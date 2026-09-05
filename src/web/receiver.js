@@ -28,6 +28,7 @@ let statsTimer;
 let authorized = false;
 let playAttemptInProgress = false;
 let remoteStream;
+const SYNCHRONIZED_JITTER_BUFFER_MS = 30;
 const debugState = { websocket: 'connecting', session: 'waiting', peer: 'not created', ice: 'new', signaling: 'stable', track: 'not received', video: 'not attached', rtp: 'not sampled', codec: 'unknown' };
 
 function renderDebug() {
@@ -53,14 +54,16 @@ function bindTrackEvents(track) {
   }
 }
 
-function requestLowJitterBuffer(receiver) {
+function requestSynchronizedJitterBuffer(receiver) {
   if (!receiver || !('jitterBufferTarget' in receiver)) {
     emit('info', 'receiver jitter buffer hint not supported');
     return;
   }
   try {
-    receiver.jitterBufferTarget = 20;
-    emit('info', 'receiver jitter buffer target requested', { milliseconds: 20 });
+    // Apply the same target to audio and video receivers so the browser can align
+    // their RTP timestamps without LocalCast introducing a separate delay.
+    receiver.jitterBufferTarget = SYNCHRONIZED_JITTER_BUFFER_MS;
+    emit('info', 'synchronized receiver jitter buffer target requested', { milliseconds: SYNCHRONIZED_JITTER_BUFFER_MS });
   } catch (error) {
     emit('warn', 'receiver jitter buffer hint not applied', errorDetails(error));
   }
@@ -214,7 +217,7 @@ function createPeer() {
     emit('info', 'REMOTE TRACK RECEIVED', { ...trackDetails(track), streams: event.streams.length });
     debugState.track = { received: true, ...trackDetails(track), streams: event.streams.length };
     bindTrackEvents(track);
-    requestLowJitterBuffer(event.receiver);
+    requestSynchronizedJitterBuffer(event.receiver);
     if (event.streams.length > 0) remoteStream = event.streams[0];
     else {
       remoteStream ??= new MediaStream();

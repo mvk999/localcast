@@ -160,11 +160,11 @@ Ao testar, registre o resultado de desktop receiver, celular receiver e TV recei
 
 O sender oferece dois perfis antes de iniciar o compartilhamento:
 
-- **Baixa latência** (padrão): até 1280×720, 30 fps e teto de 6 Mbit/s;
-- **Maior qualidade**: até 1920×1080, 30 fps e teto de 12 Mbit/s.
+- **Boa qualidade + baixa latência** (padrão): até 1920×1080, 30 fps e teto de 10 Mbit/s;
+- **Máxima fluidez**: até 1280×720, 30 fps e teto de 6 Mbit/s.
 
-Ambos marcam a captura como conteúdo de movimento e preferem preservar a taxa de frames em congestionamento. Quando o navegador da TV oferece `RTCRtpReceiver.jitterBufferTarget`, LocalCast pede 20 ms de buffer de jitter. São preferências: browsers antigos podem ignorá-las, mas não interrompem a transmissão.
+Ambos marcam a captura como conteúdo de movimento e preferem preservar a taxa de frames em congestionamento. Quando o navegador da TV oferece `RTCRtpReceiver.jitterBufferTarget`, LocalCast pede 30 ms para **cada** receiver de áudio e vídeo. Manter o mesmo alvo nos dois receivers deixa o navegador alinhar os timestamps RTP sem que LocalCast introduza um atraso separado para o áudio. São preferências: browsers antigos podem ignorá-las, mas não interrompem a transmissão.
 
-Para filmes e YouTube, comece por **Baixa latência**. Ela reduz a carga de captura, encode e decode, que costuma ser mais relevante que a rede numa LAN doméstica. Se a imagem ficar estável e o atraso for aceitável, compare com **Maior qualidade**. O painel `?debug=1` mostra `jitterBufferAvgMs`, FPS, tamanho e codec para a comparação.
+Para filmes e YouTube, comece por **Boa qualidade + baixa latência**. Ela entrega 1080p quando a rede e o decoder da TV suportam o fluxo sem acúmulo. Se houver travamentos ou o atraso aumentar durante a reprodução, use **Máxima fluidez**: reduzir para 720p diminui a carga de captura, encode e decode, que costuma ser mais relevante que a rede numa LAN doméstica. O painel `?debug=1` mostra `jitterBufferAvgMs`, FPS, tamanho e codec para a comparação.
 
-LocalCast solicita `audio: true` e adiciona qualquer track de áudio retornado ao mesmo peer connection. No seletor do navegador, marque **Compartilhar áudio** quando disponível. Alguns navegadores e sistemas não oferecem áudio para telas ou janelas; nesse caso o stream terá apenas vídeo. A TV pede uma interação única em **Ativar áudio** para respeitar políticas de autoplay.
+LocalCast solicita `audio: true` e adiciona qualquer track de áudio retornado ao **mesmo MediaStream** e peer connection do vídeo. Isso preserva o agrupamento de sincronização A/V do WebRTC; LocalCast não reproduz o áudio em um elemento separado. No seletor do navegador, marque **Compartilhar áudio** quando disponível. Alguns navegadores e sistemas não oferecem áudio para telas ou janelas; nesse caso o stream terá apenas vídeo. A TV pede uma interação única em **Ativar áudio** para respeitar políticas de autoplay.
