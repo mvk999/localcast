@@ -18,6 +18,7 @@ const sharing = document.querySelector('#sharing');
 const status = document.querySelector('#status');
 const preview = document.querySelector('#preview');
 document.querySelector('#origin').textContent = location.origin;
+const latencyProfile = document.querySelector('#latency-profile');
 
 let socket;
 let peer;
@@ -39,6 +40,42 @@ function emit(level, message, details) {
 function setStatus(message) { status.textContent = message; }
 function send(message) { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); }
 function normalizeCode(value) { return value.replace(/\D/g, '').slice(0, 6); }
+
+const VIDEO_PROFILES = {
+  'low-latency': { label: 'Baixa latência', maxWidth: 1280, maxHeight: 720, maxBitrate: 6_000_000 },
+  'high-quality': { label: 'Maior qualidade', maxWidth: 1920, maxHeight: 1080, maxBitrate: 12_000_000 }
+};
+
+function selectedVideoProfile() {
+  return VIDEO_PROFILES[latencyProfile.value] ?? VIDEO_PROFILES['low-latency'];
+}
+
+async function configureCaptureForVideo(track, profile) {
+  try {
+    if ('contentHint' in track) track.contentHint = 'motion';
+    if (typeof track.applyConstraints === 'function') {
+      await track.applyConstraints({ width: { max: profile.maxWidth }, height: { max: profile.maxHeight }, frameRate: { max: 30 } });
+    }
+    emit('info', 'capture optimized for motion', { profile: profile.label, contentHint: track.contentHint, ...trackDetails(track) });
+  } catch (error) {
+    emit('warn', 'capture optimization not applied', errorDetails(error));
+  }
+}
+
+async function configureSenderForVideo(sender, profile) {
+  try {
+    const parameters = sender.getParameters();
+    parameters.degradationPreference = 'maintain-framerate';
+    if (parameters.encodings?.length) {
+      parameters.encodings[0].maxBitrate = profile.maxBitrate;
+      parameters.encodings[0].maxFramerate = 30;
+    }
+    await sender.setParameters(parameters);
+    emit('info', 'sender optimized for low delay', { profile: profile.label, maxBitrate: profile.maxBitrate, degradationPreference: parameters.degradationPreference });
+  } catch (error) {
+    emit('warn', 'sender latency preferences not applied', errorDetails(error));
+  }
+}
 
 function stopStats() {
   clearInterval(statsTimer);
@@ -182,12 +219,14 @@ codeInput.addEventListener('input', () => {
 connectButton.addEventListener('click', () => send({ type: 'pair', code: codeInput.value }));
 shareButton.addEventListener('click', async () => {
   if (!paired || peer) return;
-  emit('info', 'Capture requested');
+  const profile = selectedVideoProfile();
+  emit('info', 'Capture requested', { profile: profile.label, target: `${profile.maxWidth}x${profile.maxHeight}@30` });
   try {
     stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 30, max: 30 } }, audio: false });
     const videoTracks = stream.getVideoTracks();
     emit('info', 'Capture granted', { streamId: stream.id, tracks: stream.getTracks().map(trackDetails) });
     if (videoTracks.length === 0) throw new Error('getDisplayMedia returned no video track.');
+    for (const track of videoTracks) await configureCaptureForVideo(track, profile);
 
     preview.srcObject = stream;
     preview.hidden = false;
@@ -197,13 +236,13 @@ shareButton.addEventListener('click', async () => {
     } catch (error) {
       emit('error', 'Local preview play failed', errorDetails(error));
     }
-
     const instance = createPeer();
-    stream.getTracks().forEach((track) => {
+    for (const track of stream.getTracks()) {
       bindTrackEvents(track, 'capture');
-      instance.addTrack(track, stream);
+      const sender = instance.addTrack(track, stream);
+      if (track.kind === 'video') await configureSenderForVideo(sender, profile);
       emit('info', 'track added to RTCPeerConnection', trackDetails(track));
-    });
+    }
     const senders = instance.getSenders().map((sender) => ({ track: trackDetails(sender.track) }));
     emit('info', 'peer senders after addTrack', { senders });
     if (!senders.some((sender) => sender.track.kind === 'video' && sender.track.readyState === 'live')) {

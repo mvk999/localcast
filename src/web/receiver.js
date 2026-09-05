@@ -51,6 +51,19 @@ function bindTrackEvents(track) {
   }
 }
 
+function requestLowJitterBuffer(receiver) {
+  if (!receiver || !('jitterBufferTarget' in receiver)) {
+    emit('info', 'receiver jitter buffer hint not supported');
+    return;
+  }
+  try {
+    receiver.jitterBufferTarget = 20;
+    emit('info', 'receiver jitter buffer target requested', { milliseconds: 20 });
+  } catch (error) {
+    emit('warn', 'receiver jitter buffer hint not applied', errorDetails(error));
+  }
+}
+
 function resetPeer() {
   stopStats();
   pendingCandidates = [];
@@ -175,6 +188,7 @@ function createPeer() {
     emit('info', 'REMOTE TRACK RECEIVED', { ...trackDetails(track), streams: event.streams.length });
     debugState.track = { received: true, ...trackDetails(track), streams: event.streams.length };
     bindTrackEvents(track);
+    requestLowJitterBuffer(event.receiver);
     const inboundStream = event.streams.length > 0 ? event.streams[0] : new MediaStream();
     if (event.streams.length === 0) inboundStream.addTrack(track);
     video.srcObject = inboundStream;

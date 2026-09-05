@@ -155,3 +155,16 @@ O sender também exibe um preview local depois da captura. Faça os testes nesta
 O receiver trata `event.streams` vazio criando um `MediaStream` com o track remoto e mostra o botão **Iniciar vídeo** caso `video.play()` seja bloqueado. Isso cobre duas diferenças comuns em navegadores embarcados sem alterar a negociação WebRTC.
 
 Ao testar, registre o resultado de desktop receiver, celular receiver e TV receiver com: preview, `connectionState`, `iceConnectionState`, `ontrack`, bytes outbound/inbound, frames decoded, codec, tamanho do vídeo e resultado de `video.play()`. A causa só deve ser considerada confirmada depois da comparação com a TV real.
+
+## Latência de vídeo
+
+O sender oferece dois perfis antes de iniciar o compartilhamento:
+
+- **Baixa latência** (padrão): até 1280×720, 30 fps e teto de 6 Mbit/s;
+- **Maior qualidade**: até 1920×1080, 30 fps e teto de 12 Mbit/s.
+
+Ambos marcam a captura como conteúdo de movimento e preferem preservar a taxa de frames em congestionamento. Quando o navegador da TV oferece `RTCRtpReceiver.jitterBufferTarget`, LocalCast pede 20 ms de buffer de jitter. São preferências: browsers antigos podem ignorá-las, mas não interrompem a transmissão.
+
+Para filmes e YouTube, comece por **Baixa latência**. Ela reduz a carga de captura, encode e decode, que costuma ser mais relevante que a rede numa LAN doméstica. Se a imagem ficar estável e o atraso for aceitável, compare com **Maior qualidade**. O painel `?debug=1` mostra `jitterBufferAvgMs`, FPS, tamanho e codec para a comparação.
+
+O MVP ainda transmite apenas vídeo (`audio: false`); a adição de áudio é uma decisão separada, pois o suporte de áudio de captura varia entre navegadores.

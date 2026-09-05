@@ -25,3 +25,4 @@ body.has-video #video { display: block; }
 .play-result { min-height: 1.4rem; margin: .3rem 0 0; color: #ffd38b; }
 /* Author CSS must not override the semantic HTML hidden state. */
 .play-overlay[hidden] { display: none !important; }
+select { width: 100%; min-height: 48px; border: 1px solid #52697d; border-radius: 10px; background: #0d141b; color: inherit; padding: 0 .8rem; font: inherit; }

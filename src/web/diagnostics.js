@@ -89,7 +89,8 @@ export async function videoStats(peer, direction) {
   };
   return compact(direction === 'outbound'
     ? { ...common, framesEncoded: report.framesEncoded, framesSent: report.framesSent }
-    : { ...common, framesReceived: report.framesReceived, framesDecoded: report.framesDecoded, framesDropped: report.framesDropped });
+    : { ...common, framesReceived: report.framesReceived, framesDecoded: report.framesDecoded, framesDropped: report.framesDropped,
+      jitterBufferAvgMs: report.jitterBufferEmittedCount ? Math.round((report.jitterBufferTargetDelay / report.jitterBufferEmittedCount) * 1_000) : undefined });
 }
 
 export function videoElementDetails(video) {
