@@ -128,3 +128,30 @@ Para um teste inicial sem TV, abra `http://IP-DA-LAN:8000/tv` em um segundo nave
 2. Ajustar compatibilidade de codec e latência somente se a TV exigir.
 3. Avaliar áudio opcional após o vídeo estar estável.
 4. Considerar HTTPS local somente se o navegador da TV permitir uma experiência de certificado aceitável.
+
+## Diagnóstico de tela preta
+
+Use o modo de diagnóstico somente durante investigação:
+
+```text
+Notebook: http://localhost:8000/?debug=1
+TV:       http://IP-DA-LAN:8000/tv?debug=1
+```
+
+Ele mantém o vídeo normal, mas mostra na TV um painel compacto e envia ao terminal local apenas eventos técnicos: captura, estados de signaling/ICE, candidatos host, transceivers, `ontrack`, eventos de vídeo, RTP, resolução e codec. Não registra PIN, SDP completo ou conteúdo da tela.
+
+O sender também exibe um preview local depois da captura. Faça os testes nesta ordem e compare o primeiro ponto que falhar:
+
+| Observação | Diagnóstico provável |
+| --- | --- |
+| Preview local preto ou sem track de vídeo | `getDisplayMedia()` / portal de captura |
+| `outbound RTP bytes` não cresce | track, `addTrack`, offer, encoder ou negociação sender |
+| outbound cresce e inbound não | signaling, ICE ou rota local |
+| inbound cresce e `framesDecoded` não | codec/perfil ou decoder do browser da TV |
+| frames decodificados e tamanho de vídeo é zero | stream remoto/metadata do elemento vídeo |
+| tamanho maior que zero, mas `video.play` rejeita | autoplay; use **Iniciar vídeo** na TV |
+| vídeo está playing e a tela ainda é preta | CSS/renderização específica do navegador da TV |
+
+O receiver trata `event.streams` vazio criando um `MediaStream` com o track remoto e mostra o botão **Iniciar vídeo** caso `video.play()` seja bloqueado. Isso cobre duas diferenças comuns em navegadores embarcados sem alterar a negociação WebRTC.
+
+Ao testar, registre o resultado de desktop receiver, celular receiver e TV receiver com: preview, `connectionState`, `iceConnectionState`, `ontrack`, bytes outbound/inbound, frames decoded, codec, tamanho do vídeo e resultado de `video.play()`. A causa só deve ser considerada confirmada depois da comparação com a TV real.

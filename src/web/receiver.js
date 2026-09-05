@@ -1,73 +1,256 @@
+import {
+  candidateDetails,
+  debugEnabled,
+  errorDetails,
+  sdpDetails,
+  trackDetails,
+  transceiverDetails,
+  videoCapabilities,
+  videoElementDetails,
+  videoStats
+} from './diagnostics.js';
+
 const codeElement = document.querySelector('#code');
 const status = document.querySelector('#status');
 const diagnostic = document.querySelector('#diagnostic');
 const video = document.querySelector('#video');
+const debugPanel = document.querySelector('#debug-panel');
+const playOverlay = document.querySelector('#play-overlay');
+const playButton = document.querySelector('#play-button');
 let socket;
 let peer;
 let pendingCandidates = [];
+let remoteIceComplete = false;
+let peerSequence = 0;
+let statsTimer;
+let authorized = false;
+const debugState = { websocket: 'connecting', session: 'waiting', peer: 'not created', ice: 'new', signaling: 'stable', track: 'not received', video: 'not attached', rtp: 'not sampled', codec: 'unknown' };
+
+function renderDebug() {
+  if (!debugEnabled) return;
+  debugPanel.hidden = false;
+  debugPanel.textContent = `LocalCast Debug\n${Object.entries(debugState).map(([key, value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`).join('\n')}`;
+}
+
+function emit(level, message, details) {
+  const line = `[TV] ${message}`;
+  console[level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info'](line, details ?? '');
+  if (debugEnabled && socket?.readyState === WebSocket.OPEN) send({ type: 'debug-log', level, message, details });
+}
+
+function setStatus(message) { status.textContent = message; }
+function send(message) { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); }
+function showCode(code) { codeElement.textContent = `${code.slice(0, 3)} ${code.slice(3)}`; }
+function stopStats() { clearInterval(statsTimer); statsTimer = undefined; }
+
+function bindTrackEvents(track) {
+  for (const eventName of ['ended', 'mute', 'unmute']) {
+    track.addEventListener(eventName, () => emit(eventName === 'ended' ? 'warn' : 'info', `remote track ${eventName}`, trackDetails(track)));
+  }
+}
+
+function resetPeer() {
+  stopStats();
+  pendingCandidates = [];
+  remoteIceComplete = false;
+  if (peer) peer.close();
+  peer = undefined;
+  video.pause();
+  video.srcObject = null;
+  playOverlay.hidden = true;
+  document.body.classList.remove('has-video');
+  debugState.peer = 'not created';
+  debugState.track = 'not received';
+  debugState.video = 'not attached';
+  debugState.rtp = 'not sampled';
+  renderDebug();
+}
+
+async function attemptPlay(origin) {
+  try {
+    await video.play();
+    playOverlay.hidden = true;
+    emit('info', `video.play resolved (${origin})`, videoElementDetails(video));
+    debugState.video = { playing: true, ...videoElementDetails(video) };
+  } catch (error) {
+    playOverlay.hidden = false;
+    setStatus('Transmissão recebida. Escolha “Iniciar vídeo”.');
+    emit('error', `video.play rejected (${origin})`, errorDetails(error));
+    debugState.video = { playing: false, error: error.name, ...videoElementDetails(video) };
+  }
+  renderDebug();
+}
+
+function observeVideoEvents() {
+  for (const eventName of ['loadedmetadata', 'loadeddata', 'canplay', 'playing', 'pause', 'waiting', 'stalled', 'suspend', 'emptied', 'error']) {
+    video.addEventListener(eventName, () => {
+      const details = videoElementDetails(video);
+      emit(eventName === 'error' ? 'error' : 'info', `video event: ${eventName}`, details);
+      debugState.video = details;
+      renderDebug();
+    });
+  }
+}
+
+function startStats(instance) {
+  if (!debugEnabled) return;
+  stopStats();
+  const sample = async () => {
+    if (peer !== instance || instance.connectionState === 'closed') return stopStats();
+    try {
+      const stats = await videoStats(instance, 'inbound');
+      debugState.rtp = stats;
+      debugState.codec = stats.codec?.mimeType ?? 'unknown';
+      debugState.video = { ...videoElementDetails(video), playing: !video.paused };
+      renderDebug();
+      emit('info', 'inbound RTP stats', stats);
+    } catch (error) { emit('warn', 'getStats inbound failed', errorDetails(error)); }
+  };
+  sample();
+  statsTimer = setInterval(sample, 2_000);
+}
+
+function createPeer() {
+  const id = ++peerSequence;
+  const instance = new RTCPeerConnection({ iceServers: [], iceTransportPolicy: 'all', bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' });
+  peer = instance;
+  debugState.peer = `#${id} created`;
+  emit('info', `PeerConnection #${id} created`, { iceServers: 0, receiverCapabilities: videoCapabilities(RTCRtpReceiver) });
+  renderDebug();
+  instance.onicecandidate = ({ candidate }) => {
+    if (!candidate) {
+      emit('info', `PC #${id} ICE gathering complete`);
+      send({ type: 'ice-complete' });
+      return;
+    }
+    emit('info', `PC #${id} ICE candidate generated/sent`, candidateDetails(candidate));
+    send({ type: 'candidate', candidate });
+  };
+  instance.onsignalingstatechange = () => {
+    debugState.signaling = instance.signalingState;
+    emit('info', `PC #${id} signalingState`, { state: instance.signalingState });
+    renderDebug();
+  };
+  instance.onconnectionstatechange = () => {
+    debugState.peer = instance.connectionState;
+    emit(instance.connectionState === 'failed' ? 'error' : 'info', `PC #${id} connectionState`, { state: instance.connectionState });
+    if (instance.connectionState === 'failed') setStatus('A conexão WebRTC falhou. Veja o diagnóstico.');
+    renderDebug();
+  };
+  instance.oniceconnectionstatechange = () => {
+    debugState.ice = instance.iceConnectionState;
+    emit(instance.iceConnectionState === 'failed' ? 'error' : 'info', `PC #${id} iceConnectionState`, { state: instance.iceConnectionState });
+    renderDebug();
+  };
+  instance.onicegatheringstatechange = () => emit('info', `PC #${id} iceGatheringState`, { state: instance.iceGatheringState });
+  instance.ontrack = async (event) => {
+    const track = event.track;
+    emit('info', 'REMOTE TRACK RECEIVED', { ...trackDetails(track), streams: event.streams.length });
+    debugState.track = { received: true, ...trackDetails(track), streams: event.streams.length };
+    bindTrackEvents(track);
+    const inboundStream = event.streams.length > 0 ? event.streams[0] : new MediaStream();
+    if (event.streams.length === 0) inboundStream.addTrack(track);
+    video.srcObject = inboundStream;
+    document.body.classList.add('has-video');
+    emit('info', 'video.srcObject assigned', { streamId: inboundStream.id, ...videoElementDetails(video) });
+    await attemptPlay('ontrack');
+    renderDebug();
+  };
+  return instance;
+}
+
+async function receiveCandidate(candidate) {
+  if (!peer?.remoteDescription) {
+    pendingCandidates.push(candidate);
+    emit('info', 'ICE candidate received and queued', { pending: pendingCandidates.length, ...candidateDetails(candidate) });
+    return;
+  }
+  await peer.addIceCandidate(candidate);
+  emit('info', 'ICE candidate received and added', candidateDetails(candidate));
+}
+
+async function handleMessage(message) {
+  if (message.type === 'session-created') {
+    authorized = false;
+    debugState.session = 'waiting for PIN';
+    showCode(message.code);
+    setStatus('Digite este código no notebook.');
+    emit('info', 'receiver session created');
+    renderDebug();
+  }
+  if (message.type === 'authorized') {
+    authorized = true;
+    debugState.session = 'authorized';
+    setStatus('Conectado. Aguardando compartilhamento…');
+    emit('info', 'authorized');
+    renderDebug();
+  }
+  if (message.type === 'offer') {
+    const earlyCandidates = pendingCandidates;
+    resetPeer();
+    pendingCandidates = earlyCandidates;
+    const instance = createPeer();
+    emit('info', 'offer received', sdpDetails(message.description.sdp));
+    await instance.setRemoteDescription(message.description);
+    emit('info', 'remoteDescription set (offer)', { transceivers: transceiverDetails(instance) });
+    for (const candidate of pendingCandidates.splice(0)) await receiveCandidate(candidate);
+    if (remoteIceComplete) await instance.addIceCandidate(null);
+    const answer = await instance.createAnswer();
+    emit('info', 'answer created', sdpDetails(answer.sdp));
+    await instance.setLocalDescription(answer);
+    emit('info', 'localDescription set (answer)', { ...sdpDetails(instance.localDescription.sdp), transceivers: transceiverDetails(instance) });
+    send({ type: 'answer', description: instance.localDescription });
+    emit('info', 'answer sent to sender');
+    setStatus('Conectando vídeo…');
+    startStats(instance);
+  }
+  if (message.type === 'candidate') await receiveCandidate(message.candidate);
+  if (message.type === 'ice-complete' && peer) {
+    if (peer.remoteDescription) await peer.addIceCandidate(null);
+    else remoteIceComplete = true;
+    emit('info', 'remote ICE gathering complete');
+  }
+  if (message.type === 'session-ended') {
+    authorized = false;
+    debugState.session = `ended: ${message.reason}`;
+    setStatus('Sessão encerrada. Criando novo código…');
+    renderDebug();
+  }
+}
+
+function connect() {
+  socket = new WebSocket(`ws://${location.host}/signal`);
+  socket.addEventListener('open', () => {
+    debugState.websocket = 'connected';
+    renderDebug();
+    send({ type: 'tv-hello' });
+  });
+  socket.addEventListener('error', () => emit('error', 'WebSocket error'));
+  socket.addEventListener('close', () => {
+    authorized = false;
+    debugState.websocket = 'closed; reconnecting';
+    resetPeer();
+    codeElement.textContent = '··· ···';
+    setStatus('Criando novo código…');
+    renderDebug();
+    setTimeout(connect, 600);
+  });
+  socket.addEventListener('message', ({ data }) => {
+    Promise.resolve(JSON.parse(data)).then(handleMessage).catch((error) => {
+      emit('error', 'signaling message failed', errorDetails(error));
+      setStatus(`Erro de sinalização: ${error.name}`);
+    });
+  });
+}
+
+playButton.addEventListener('click', () => attemptPlay('manual button'));
+observeVideoEvents();
+window.addEventListener('error', (event) => emit('error', 'window error', { message: event.message, source: event.filename, line: event.lineno }));
+window.addEventListener('unhandledrejection', (event) => emit('error', 'unhandled rejection', errorDetails(event.reason)));
 
 const supported = window.WebSocket && window.RTCPeerConnection;
 diagnostic.textContent = supported
-  ? 'Digite este código no notebook. Esta TV apenas recebe o vídeo.'
+  ? (debugEnabled ? 'Diagnóstico ativo. Logs também aparecem no notebook.' : 'Digite este código no notebook. Esta TV apenas recebe o vídeo.')
   : 'Este navegador não oferece as APIs WebSocket/WebRTC necessárias.';
-
-function send(message) { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); }
-function showCode(code) { codeElement.textContent = `${code.slice(0, 3)} ${code.slice(3)}`; }
-function resetPeer() {
-  pendingCandidates = [];
-  if (peer) peer.close();
-  peer = undefined;
-  video.srcObject = null;
-  document.body.classList.remove('has-video');
-}
-function createPeer() {
-  peer = new RTCPeerConnection({ iceServers: [], iceTransportPolicy: 'all', bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' });
-  peer.onicecandidate = ({ candidate }) => send(candidate ? { type: 'candidate', candidate } : { type: 'ice-complete' });
-  peer.ontrack = async ({ streams }) => {
-    video.srcObject = streams[0];
-    try { await video.play(); } catch { status.textContent = 'Vídeo recebido. Se necessário, confirme a reprodução no controle da TV.'; }
-    document.body.classList.add('has-video');
-  };
-  peer.onconnectionstatechange = () => {
-    if (peer?.connectionState === 'failed') status.textContent = 'A conexão WebRTC falhou. A TV exibirá um novo código.';
-  };
-}
-async function receiveCandidate(candidate) {
-  if (!peer?.remoteDescription) pendingCandidates.push(candidate);
-  else await peer.addIceCandidate(candidate);
-}
-function connect() {
-  socket = new WebSocket(`ws://${location.host}/signal`);
-  socket.addEventListener('open', () => send({ type: 'tv-hello' }));
-  socket.addEventListener('close', () => {
-    resetPeer();
-    codeElement.textContent = '··· ···';
-    status.textContent = 'Criando novo código…';
-    setTimeout(connect, 600);
-  });
-  socket.addEventListener('message', async ({ data }) => {
-    const message = JSON.parse(data);
-    if (message.type === 'session-created') {
-      showCode(message.code);
-      status.textContent = 'Digite este código no notebook.';
-    }
-    if (message.type === 'authorized') status.textContent = 'Conectado. Aguardando compartilhamento…';
-    if (message.type === 'offer') {
-      const earlyCandidates = pendingCandidates;
-      resetPeer();
-      pendingCandidates = earlyCandidates;
-      createPeer();
-      await peer.setRemoteDescription(message.description);
-      for (const candidate of pendingCandidates.splice(0)) await peer.addIceCandidate(candidate);
-      const answer = await peer.createAnswer();
-      await peer.setLocalDescription(answer);
-      send({ type: 'answer', description: peer.localDescription });
-      status.textContent = 'Conectando vídeo…';
-    }
-    if (message.type === 'candidate') await receiveCandidate(message.candidate);
-    if (message.type === 'ice-complete' && peer?.remoteDescription) await peer.addIceCandidate(null);
-    if (message.type === 'session-ended') status.textContent = 'Sessão encerrada. Criando novo código…';
-  });
-}
-
+renderDebug();
 if (supported) connect();

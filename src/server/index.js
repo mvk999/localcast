@@ -15,6 +15,7 @@ const files = new Map([
   ['/sender.js', 'sender.js'],
   ['/tv', 'receiver.html'],
   ['/receiver.js', 'receiver.js'],
+  ['/diagnostics.js', 'diagnostics.js'],
   ['/styles.css', 'styles.css']
 ]);
 
@@ -55,6 +56,20 @@ function parseMessage(raw) {
   }
 }
 
+function isDebugLog(message) {
+  return message.type === 'debug-log'
+    && ['info', 'warn', 'error'].includes(message.level)
+    && typeof message.message === 'string'
+    && message.message.length > 0
+    && message.message.length <= 240
+    && (message.details === undefined || (message.details && typeof message.details === 'object' && !Array.isArray(message.details)));
+}
+
+function logClientDebug(role, message) {
+  const details = message.details ? JSON.stringify(message.details, (key, value) => (key.toLowerCase() === 'sdp' || /code/i.test(key) ? '[redacted]' : value)).slice(0, 1_500) : '';
+  const level = message.level === 'error' ? 'error' : message.level === 'warn' ? 'warn' : 'info';
+  console[level](`[${role.toUpperCase()}] ${message.message}${details ? ` ${details}` : ''}`);
+}
 function parseOptions(argv) {
   const hostIndex = argv.indexOf('--host');
   return { host: hostIndex >= 0 ? argv[hostIndex + 1] : undefined };
@@ -147,6 +162,10 @@ function attachSignaling(server, kind, lan, store) {
         return;
       }
 
+      if (isDebugLog(message)) {
+        logClientDebug(socket.role, message);
+        return;
+      }
       if (socket.role === 'sender' && message.type === 'pair') {
         if (socket.sessionId) return send(socket, { type: 'pairing-denied', reason: 'already_paired' });
         if (!/^\d{6}$/.test(message.code ?? '')) return send(socket, { type: 'pairing-denied', reason: 'invalid_format' });
@@ -178,14 +197,17 @@ function attachSignaling(server, kind, lan, store) {
       }
 
       if (socket.role === 'sender' && message.type === 'offer' && isValidDescription(message.description, 'offer')) {
+        console.info('offer forwarded to TV');
         send(session.tvSocket, { type: 'offer', description: message.description });
         return;
       }
       if (socket.role === 'tv' && message.type === 'answer' && isValidDescription(message.description, 'answer')) {
+        console.info('answer forwarded to sender');
         send(session.senderSocket, { type: 'answer', description: message.description });
         return;
       }
       if (message.type === 'candidate' && isSafeHostCandidate(message.candidate, socket.role, lan)) {
+        console.info(`ICE host candidate forwarded (${socket.role})`);
         const peer = socket.role === 'sender' ? session.tvSocket : session.senderSocket;
         send(peer, { type: 'candidate', candidate: message.candidate });
         return;

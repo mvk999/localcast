@@ -14,7 +14,11 @@ button.secondary { background: transparent; border: 1px solid #64788a; color: #e
 .success { color: #63d4a5; font-size: 1.1rem; font-weight: 700; }
 .tv-code { display: block; margin: 1.2rem 0; color: #7de4b7; font-size: clamp(2.6rem, 9vw, 4.6rem); font-weight: 750; letter-spacing: .08em; }
 .receiver-card { width: min(90vw, 620px); padding: clamp(2rem, 8vw, 5rem); }
-#video { display: none; width: 100vw; height: 100vh; object-fit: contain; background: #000; }
+.preview { width: 100%; max-height: 220px; margin-top: 1.25rem; border-radius: 10px; background: #000; object-fit: contain; }
+#video { display: none; width: 100vw; height: 100vh; object-fit: contain; background: #000; position: fixed; inset: 0; z-index: 1; }
 body.has-video { display: block; background: #000; }
 body.has-video #receiver-card { display: none; }
 body.has-video #video { display: block; }
+.debug-panel { position: fixed; top: .75rem; left: .75rem; z-index: 3; max-width: min(94vw, 680px); max-height: 45vh; overflow: auto; margin: 0; padding: .75rem; border: 1px solid #557188; border-radius: 8px; background: #071019e8; color: #dcecff; font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; text-align: left; }
+.play-overlay { position: fixed; inset: 0; z-index: 4; display: grid; place-content: center; gap: .5rem; padding: 2rem; text-align: center; background: #000b; }
+.play-overlay button { min-width: 220px; }

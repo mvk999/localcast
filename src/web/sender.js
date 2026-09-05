@@ -1,3 +1,14 @@
+import {
+  candidateDetails,
+  debugEnabled,
+  errorDetails,
+  sdpDetails,
+  trackDetails,
+  transceiverDetails,
+  videoCapabilities,
+  videoStats
+} from './diagnostics.js';
+
 const codeInput = document.querySelector('#code');
 const connectButton = document.querySelector('#connect');
 const shareButton = document.querySelector('#share');
@@ -5,6 +16,7 @@ const stopButton = document.querySelector('#stop');
 const pairing = document.querySelector('#pairing');
 const sharing = document.querySelector('#sharing');
 const status = document.querySelector('#status');
+const preview = document.querySelector('#preview');
 document.querySelector('#origin').textContent = location.origin;
 
 let socket;
@@ -13,12 +25,49 @@ let stream;
 let paired = false;
 let pendingCandidates = [];
 let remoteIceComplete = false;
+let peerSequence = 0;
+let statsTimer;
+
+function emit(level, message, details) {
+  const line = `[Sender] ${message}`;
+  console[level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info'](line, details ?? '');
+  if (debugEnabled && paired && socket?.readyState === WebSocket.OPEN) {
+    send({ type: 'debug-log', level, message, details });
+  }
+}
 
 function setStatus(message) { status.textContent = message; }
 function send(message) { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); }
 function normalizeCode(value) { return value.replace(/\D/g, '').slice(0, 6); }
 
-function reset(message = 'Aguardando uma TV…') {
+function stopStats() {
+  clearInterval(statsTimer);
+  statsTimer = undefined;
+}
+
+function startStats(instance) {
+  if (!debugEnabled) return;
+  stopStats();
+  const sample = async () => {
+    if (peer !== instance || instance.connectionState === 'closed') return stopStats();
+    try { emit('info', 'outbound RTP stats', await videoStats(instance, 'outbound')); }
+    catch (error) { emit('warn', 'getStats outbound failed', errorDetails(error)); }
+  };
+  sample();
+  statsTimer = setInterval(sample, 2_000);
+}
+
+function bindTrackEvents(track, scope) {
+  for (const eventName of ['ended', 'mute', 'unmute']) {
+    track.addEventListener(eventName, () => {
+      emit(eventName === 'ended' ? 'warn' : 'info', `${scope} track ${eventName}`, trackDetails(track));
+      if (scope === 'capture' && eventName === 'ended' && stream) stopTransmission('Capture ended');
+    });
+  }
+}
+
+function reset(message = 'Aguardando uma TV…', { stopCapture = true } = {}) {
+  stopStats();
   paired = false;
   pairing.hidden = false;
   sharing.hidden = true;
@@ -26,8 +75,11 @@ function reset(message = 'Aguardando uma TV…') {
   stopButton.hidden = true;
   codeInput.value = '';
   connectButton.disabled = true;
-  if (stream) stream.getTracks().forEach((track) => track.stop());
+  if (stopCapture && stream) stream.getTracks().forEach((track) => track.stop());
   stream = undefined;
+  preview.pause();
+  preview.srcObject = null;
+  preview.hidden = true;
   if (peer) peer.close();
   peer = undefined;
   pendingCandidates = [];
@@ -35,46 +87,91 @@ function reset(message = 'Aguardando uma TV…') {
   setStatus(message);
 }
 
+function stopTransmission(message = 'Transmissão encerrada.') {
+  if (!stream && !peer) return;
+  emit('info', message);
+  if (stream) stream.getTracks().forEach((track) => track.stop());
+  send({ type: 'stop' });
+  reset('Transmissão encerrada. A TV exibirá um novo código.', { stopCapture: false });
+}
+
 function createPeer() {
-  peer = new RTCPeerConnection({ iceServers: [], iceTransportPolicy: 'all', bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' });
-  peer.onicecandidate = ({ candidate }) => send(candidate ? { type: 'candidate', candidate } : { type: 'ice-complete' });
-  peer.onconnectionstatechange = () => {
-    if (peer?.connectionState === 'connected') setStatus('Transmitindo.');
-    if (['failed', 'disconnected'].includes(peer?.connectionState)) setStatus('A conexão WebRTC foi interrompida.');
+  const id = ++peerSequence;
+  const instance = new RTCPeerConnection({ iceServers: [], iceTransportPolicy: 'all', bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' });
+  peer = instance;
+  emit('info', `PeerConnection #${id} created`, { iceServers: 0, senderCapabilities: videoCapabilities(RTCRtpSender) });
+  instance.onicecandidate = ({ candidate }) => {
+    if (!candidate) {
+      emit('info', `PC #${id} ICE gathering complete`);
+      send({ type: 'ice-complete' });
+      return;
+    }
+    emit('info', `PC #${id} ICE candidate generated/sent`, candidateDetails(candidate));
+    send({ type: 'candidate', candidate });
   };
+  instance.onsignalingstatechange = () => emit('info', `PC #${id} signalingState`, { state: instance.signalingState });
+  instance.onconnectionstatechange = () => {
+    emit(instance.connectionState === 'failed' ? 'error' : 'info', `PC #${id} connectionState`, { state: instance.connectionState });
+    if (instance.connectionState === 'connected') setStatus('Transmitindo.');
+    if (['failed', 'disconnected'].includes(instance.connectionState)) setStatus('A conexão WebRTC foi interrompida.');
+  };
+  instance.oniceconnectionstatechange = () => emit(instance.iceConnectionState === 'failed' ? 'error' : 'info', `PC #${id} iceConnectionState`, { state: instance.iceConnectionState });
+  instance.onicegatheringstatechange = () => emit('info', `PC #${id} iceGatheringState`, { state: instance.iceGatheringState });
+  return instance;
+}
+
+async function addRemoteCandidate(candidate) {
+  if (!peer?.remoteDescription) {
+    pendingCandidates.push(candidate);
+    emit('info', 'ICE candidate received and queued', { pending: pendingCandidates.length, ...candidateDetails(candidate) });
+    return;
+  }
+  await peer.addIceCandidate(candidate);
+  emit('info', 'ICE candidate received and added', candidateDetails(candidate));
+}
+
+async function handleMessage(message) {
+  if (message.type === 'sender-ready') {
+    setStatus('Digite o código exibido na TV.');
+    emit('info', 'WebSocket connected');
+  }
+  if (message.type === 'paired') {
+    paired = true;
+    pairing.hidden = true;
+    sharing.hidden = false;
+    setStatus('TV autorizada. Escolha o que compartilhar quando estiver pronto.');
+    emit('info', 'TV authorized');
+  }
+  if (message.type === 'pairing-denied') {
+    setStatus(message.reason === 'attempts_exceeded' ? 'Tentativas excessivas. Recarregue esta página.' : `Código recusado. Tentativas restantes: ${message.remaining ?? 0}.`);
+    if (message.reason === 'attempts_exceeded') connectButton.disabled = true;
+  }
+  if (message.type === 'answer' && peer) {
+    emit('info', 'answer received', sdpDetails(message.description.sdp));
+    await peer.setRemoteDescription(message.description);
+    emit('info', 'remoteDescription set (answer)', { transceivers: transceiverDetails(peer) });
+    for (const candidate of pendingCandidates.splice(0)) await addRemoteCandidate(candidate);
+    if (remoteIceComplete) await peer.addIceCandidate(null);
+  }
+  if (message.type === 'candidate' && peer) await addRemoteCandidate(message.candidate);
+  if (message.type === 'ice-complete' && peer) {
+    if (peer.remoteDescription) await peer.addIceCandidate(null);
+    else remoteIceComplete = true;
+    emit('info', 'remote ICE gathering complete');
+  }
+  if (message.type === 'session-ended') reset('Sessão encerrada. A TV exibirá um novo código.');
 }
 
 function connectSocket() {
   socket = new WebSocket(`ws://${location.host}/signal`);
   socket.addEventListener('open', () => send({ type: 'sender-hello' }));
+  socket.addEventListener('error', () => emit('error', 'WebSocket error'));
   socket.addEventListener('close', () => { if (paired) reset('Conexão local encerrada. Recarregue a página.'); });
-  socket.addEventListener('message', async ({ data }) => {
-    const message = JSON.parse(data);
-    if (message.type === 'sender-ready') setStatus('Digite o código exibido na TV.');
-    if (message.type === 'paired') {
-      paired = true;
-      pairing.hidden = true;
-      sharing.hidden = false;
-      setStatus('TV autorizada. Escolha o que compartilhar quando estiver pronto.');
-    }
-    if (message.type === 'pairing-denied') {
-      setStatus(message.reason === 'attempts_exceeded' ? 'Tentativas excessivas. Recarregue esta página.' : `Código recusado. Tentativas restantes: ${message.remaining ?? 0}.`);
-      if (message.reason === 'attempts_exceeded') connectButton.disabled = true;
-    }
-    if (message.type === 'answer' && peer) {
-      await peer.setRemoteDescription(message.description);
-      for (const candidate of pendingCandidates.splice(0)) await peer.addIceCandidate(candidate);
-      if (remoteIceComplete) await peer.addIceCandidate(null);
-    }
-    if (message.type === 'candidate' && peer) {
-      if (peer.remoteDescription) await peer.addIceCandidate(message.candidate);
-      else pendingCandidates.push(message.candidate);
-    }
-    if (message.type === 'ice-complete' && peer) {
-      if (peer.remoteDescription) await peer.addIceCandidate(null);
-      else remoteIceComplete = true;
-    }
-    if (message.type === 'session-ended') reset('Sessão encerrada. A TV exibirá um novo código.');
+  socket.addEventListener('message', ({ data }) => {
+    Promise.resolve(JSON.parse(data)).then(handleMessage).catch((error) => {
+      emit('error', 'signaling message failed', errorDetails(error));
+      setStatus(`Erro de sinalização: ${error.name}`);
+    });
   });
 }
 
@@ -85,33 +182,60 @@ codeInput.addEventListener('input', () => {
 connectButton.addEventListener('click', () => send({ type: 'pair', code: codeInput.value }));
 shareButton.addEventListener('click', async () => {
   if (!paired || peer) return;
+  emit('info', 'Capture requested');
   try {
-    // This user gesture is the first and only point at which screen capture is requested.
     stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 30, max: 30 } }, audio: false });
-    createPeer();
+    const videoTracks = stream.getVideoTracks();
+    emit('info', 'Capture granted', { streamId: stream.id, tracks: stream.getTracks().map(trackDetails) });
+    if (videoTracks.length === 0) throw new Error('getDisplayMedia returned no video track.');
+
+    preview.srcObject = stream;
+    preview.hidden = false;
+    try {
+      await preview.play();
+      emit('info', 'Local preview playing', { width: preview.videoWidth, height: preview.videoHeight });
+    } catch (error) {
+      emit('error', 'Local preview play failed', errorDetails(error));
+    }
+
+    const instance = createPeer();
     stream.getTracks().forEach((track) => {
-      track.addEventListener('ended', () => { if (stream) stopButton.click(); }, { once: true });
-      peer.addTrack(track, stream);
+      bindTrackEvents(track, 'capture');
+      instance.addTrack(track, stream);
+      emit('info', 'track added to RTCPeerConnection', trackDetails(track));
     });
-    const offer = await peer.createOffer();
-    await peer.setLocalDescription(offer);
-    send({ type: 'offer', description: peer.localDescription });
+    const senders = instance.getSenders().map((sender) => ({ track: trackDetails(sender.track) }));
+    emit('info', 'peer senders after addTrack', { senders });
+    if (!senders.some((sender) => sender.track.kind === 'video' && sender.track.readyState === 'live')) {
+      throw new Error('No live video sender after addTrack.');
+    }
+
+    const offer = await instance.createOffer();
+    emit('info', 'offer created', sdpDetails(offer.sdp));
+    if (!sdpDetails(offer.sdp).videoMediaSection) throw new Error('Offer has no m=video section.');
+    await instance.setLocalDescription(offer);
+    emit('info', 'localDescription set (offer)', { ...sdpDetails(instance.localDescription.sdp), transceivers: transceiverDetails(instance) });
+    send({ type: 'offer', description: instance.localDescription });
+    emit('info', 'offer sent to TV');
     shareButton.hidden = true;
     stopButton.hidden = false;
     setStatus('Conectando vídeo à TV…');
+    startStats(instance);
   } catch (error) {
+    emit('error', 'share setup failed', errorDetails(error));
     setStatus(error.name === 'NotAllowedError' ? 'Compartilhamento cancelado.' : `Não foi possível compartilhar: ${error.message}`);
     if (stream) stream.getTracks().forEach((track) => track.stop());
     stream = undefined;
+    preview.srcObject = null;
+    preview.hidden = true;
     if (peer) peer.close();
     peer = undefined;
   }
 });
-stopButton.addEventListener('click', () => {
-  if (stream) stream.getTracks().forEach((track) => track.stop());
-  send({ type: 'stop' });
-  reset('Transmissão encerrada. A TV exibirá um novo código.');
-});
+stopButton.addEventListener('click', () => stopTransmission());
+
+window.addEventListener('error', (event) => emit('error', 'window error', { message: event.message, source: event.filename, line: event.lineno }));
+window.addEventListener('unhandledrejection', (event) => emit('error', 'unhandled rejection', errorDetails(event.reason)));
 
 if (!window.isSecureContext || !navigator.mediaDevices?.getDisplayMedia) {
   setStatus('Este navegador não disponibiliza captura de tela nesta origem. Abra http://localhost:8000 no notebook.');

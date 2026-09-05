@@ -15,6 +15,11 @@
       <p id="diagnostic" class="note"></p>
     </main>
     <video id="video" autoplay muted playsinline></video>
+    <aside id="debug-panel" class="debug-panel" hidden aria-live="polite"></aside>
+    <div id="play-overlay" class="play-overlay" hidden>
+      <p>Transmissão recebida.</p>
+      <button id="play-button">▶ Iniciar vídeo</button>
+    </div>
     <script type="module" src="/receiver.js"></script>
   </body>
 </html>
