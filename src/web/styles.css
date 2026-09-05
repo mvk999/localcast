@@ -23,3 +23,5 @@ body.has-video #video { display: block; }
 .play-overlay { position: fixed; inset: 0; z-index: 4; display: grid; place-content: center; gap: .5rem; padding: 2rem; text-align: center; background: #000b; }
 .play-overlay button { min-width: 220px; }
 .play-result { min-height: 1.4rem; margin: .3rem 0 0; color: #ffd38b; }
+/* Author CSS must not override the semantic HTML hidden state. */
+.play-overlay[hidden] { display: none !important; }
