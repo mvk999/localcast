@@ -121,7 +121,6 @@ function attachSignaling(server, kind, lan, store) {
     for (const socket of [session.senderSocket, session.tvSocket]) {
       if (socket && socket !== except) {
         send(socket, { type: 'session-ended', reason });
-      console.warn(`${socket.role} WebSocket closed: unsupported message ${message.type}`);
       close(socket);
       }
     }
@@ -229,9 +228,9 @@ function attachSignaling(server, kind, lan, store) {
         send(peer, { type: 'ice-complete' });
         return;
       }
+      console.warn(`${socket.role} WebSocket closed: unsupported message ${message.type}`);
       close(socket);
     });
-
     socket.on('close', (code, reason) => {
       console.info(`${socket.role ?? kind} WebSocket closed (code ${code}${reason.length ? `, ${reason.toString()}` : ''})`);
       const session = socket.sessionId && store.get(socket.sessionId);
