@@ -217,7 +217,11 @@ function attachSignaling(server, kind, lan, store) {
         send(session.senderSocket, { type: 'answer', description: message.description });
         return;
       }
-      if (message.type === 'candidate' && isSafeHostCandidate(message.candidate, socket.role, lan)) {
+      if (message.type === 'candidate') {
+        if (!isSafeHostCandidate(message.candidate, socket.role, lan)) {
+          console.warn(`ICE candidate ignored (${socket.role}; not an allowed local host candidate)`);
+          return;
+        }
         console.info(`ICE host candidate forwarded (${socket.role})`);
         const peer = socket.role === 'sender' ? session.tvSocket : session.senderSocket;
         send(peer, { type: 'candidate', candidate: message.candidate });
