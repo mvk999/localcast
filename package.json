@@ -1,0 +1,17 @@
+{
+  "name": "localcast",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Screen casting to a browser on the local network only.",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server/index.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
